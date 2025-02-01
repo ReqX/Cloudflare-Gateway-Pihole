@@ -1,3 +1,4 @@
+dummy.xyz
 easynews.grossmann.workers.dev
 easynews-de.grossmann.workers.dev
 b89262c192b0-stremio-easynews-addon.baby-beamup.club

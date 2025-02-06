@@ -1,6 +1,7 @@
 dummy-only-chickenshtlolroflspam.xyz
 easynews.grossmann.workers.dev
 easynews-de.grossmann.workers.dev
+aiostreams.grossmann.workers.dev
 b89262c192b0-stremio-easynews-addon.baby-beamup.club
 torrentio.strem.fun
 la2.vnecdn.net

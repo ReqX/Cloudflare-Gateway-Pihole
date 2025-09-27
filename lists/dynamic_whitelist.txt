@@ -1,2 +1,5 @@
 # connect.facebook.net
 api-js.datadome.co
+a.nel.cloudflare.com
+fls-eu.amazon.com
+jnn-pa.googleapis.com

@@ -2,8 +2,8 @@ import argparse
 from src.domains import DomainConverter
 from src import utils, info, silent_error, error, PREFIX
 from src.cloudflare import (
-    create_list, update_list, create_rule, 
-    update_rule, delete_list, delete_rule
+    create_list, update_list, create_rule,
+    update_rule, delete_list, delete_rule, get_list_items
 )
 
 
@@ -46,7 +46,8 @@ class CloudflareManager:
             list_name = f"{self.list_name} - {i:03d}"
             if list_name in list_name_to_id:
                 list_id = list_name_to_id[list_name]
-                current_values = list_id_to_domains[list_id]
+                # Always fetch current items from Cloudflare to avoid cache staleness issues
+                current_values = set(get_list_items(list_id))
                 remove_items = current_values - set(domains_to_block)
                 chunk = current_values - remove_items
 

@@ -54,35 +54,45 @@ class DomainConverter:
             conn = http.client.HTTPSConnection(parsed_url.netloc)
         else:
             conn = http.client.HTTPConnection(parsed_url.netloc)
-    
+
         headers = {
             'User-Agent': 'Mozilla/5.0'
         }
-    
+
         conn.request("GET", parsed_url.path, headers=headers)
         response = conn.getresponse()
-    
+
         # Handle redirection responses
         while response.status in (301, 302, 303, 307, 308):
+            conn.close()  # Close old connection before redirect
             location = response.getheader('Location')
             if not location:
                 break
             # Construct new absolute URL if relative path is returned
             if not urlparse(location).netloc:
                 location = urljoin(url, location)
-        
+
             url = location
             parsed_url = urlparse(url)
-        
+
             # Create new connection based on the new URL scheme
             if parsed_url.scheme == "https":
                 conn = http.client.HTTPSConnection(parsed_url.netloc)
             else:
                 conn = http.client.HTTPConnection(parsed_url.netloc)
-        
-            conn.request("GET", parsed_url.path, headers=headers)
+
+            # Use full path with query string for redirects
+            full_path = parsed_url.path
+            if parsed_url.params:
+                full_path += f";{parsed_url.params}"
+            if parsed_url.query:
+                full_path += f"?{parsed_url.query}"
+            if parsed_url.fragment:
+                full_path += f"#{parsed_url.fragment}"
+
+            conn.request("GET", full_path, headers=headers)
             response = conn.getresponse()
-    
+
         # Raise error for non-200 status codes
         if response.status != 200:
             error_message = f"Failed to download file from {url}, status code: {response.status}"

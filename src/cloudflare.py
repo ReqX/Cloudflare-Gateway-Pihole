@@ -17,16 +17,41 @@ def create_list(name, domains):
     status, response = cloudflare_gateway_request("POST", endpoint, body=json.dumps(data))
     return response["result"]
 
-@retry(**retry_config)
 @rate_limited_request
 def update_list(list_id, remove_items, append_items):
-    endpoint = f"/lists/{list_id}"    
-    data = {
-        "remove": [domain for domain in remove_items],
-        "append": [{"value": domain} for domain in append_items]
-    }    
-    status, response = cloudflare_gateway_request("PATCH", endpoint, body=json.dumps(data))
-    return response["result"]
+    from src.requests import HTTPException
+    endpoint = f"/lists/{list_id}"
+    remove_list = list(remove_items)
+
+    # Try updating the list; if we get a 400 "not found" error, filter and retry
+    max_retries = 3
+    for attempt in range(max_retries):
+        data = {
+            "remove": remove_list,
+            "append": [{"value": domain} for domain in append_items]
+        }
+        try:
+            status, response = cloudflare_gateway_request("PATCH", endpoint, body=json.dumps(data))
+            return response["result"]
+        except HTTPException as e:
+            # Check if this is a "not found in list" error (items already removed)
+            if "not found in list" in str(e) and attempt < max_retries - 1:
+                # Extract the domain that wasn't found from the error message
+                import re
+                match = re.search(r'"message":\s*"(item to be removed, )?([^,]+)(, not found in list)?"', str(e))
+                if match:
+                    not_found_domain = match.group(2)
+                    from src import silent_error
+                    silent_error(f"Domain '{not_found_domain}' not in list (already removed), filtering and retrying")
+                    # Remove the problematic domain from remove_list
+                    if not_found_domain in remove_list:
+                        remove_list.remove(not_found_domain)
+                    # Retry with filtered list
+                    continue
+            # If it's not a "not found" error or we've exhausted retries, raise
+            raise
+
+    return None  # Should never reach here
 
 @retry(**retry_config)
 def create_rule(rule_name, list_ids):

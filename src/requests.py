@@ -22,7 +22,7 @@ class RateLimitException(HTTPException):
 def cloudflare_gateway_request(
     method: str, endpoint: str,
     body: Optional[str] = None,
-    timeout: int = 10
+    timeout: int = 30
 ) -> Tuple[int, dict]:
     context = ssl.create_default_context()
     conn = http.client.HTTPSConnection("api.cloudflare.com", context=context, timeout=timeout)

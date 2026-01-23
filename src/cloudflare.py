@@ -17,9 +17,10 @@ def create_list(name, domains):
     status, response = cloudflare_gateway_request("POST", endpoint, body=json.dumps(data))
     return response["result"]
 
+@retry(**retry_config)
 @rate_limited_request
 def update_list(list_id, remove_items, append_items):
-    from src.requests import HTTPException
+    from src.requests import HTTPException, ServerSideException
     endpoint = f"/lists/{list_id}"
     remove_list = list(remove_items)
 

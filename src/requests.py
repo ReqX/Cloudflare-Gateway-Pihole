@@ -18,6 +18,9 @@ class HTTPException(Exception):
 class RateLimitException(HTTPException):
     pass
 
+class ServerSideException(HTTPException):
+    pass
+
 # Cloudflare Gateway Request Function
 def cloudflare_gateway_request(
     method: str, endpoint: str,
@@ -63,11 +66,15 @@ def cloudflare_gateway_request(
             if status == 429:
                 silent_error(error_message)
                 raise RateLimitException(error_message)
+            elif status >= 500:
+                silent_error(error_message)
+                raise ServerSideException(error_message)
             elif status in [400, 403, 404]:
                 error(error_message)
+                raise HTTPException(error_message)
             else:
                 silent_error(error_message)
-            raise HTTPException(error_message)
+                raise HTTPException(error_message)
 
         return status, json.loads(data.decode('utf-8'))
 
@@ -85,8 +92,8 @@ def cloudflare_gateway_request(
         conn.close()
 
 # Retry conditions and strategies
-def stop_after_custom_attempts(attempt_number):
-    return attempt_number >= 5
+def stop_after_custom_attempts(attempt_number, max_attempts=5):
+    return attempt_number >= max_attempts
 
 def stop_never(attempt_number):
     return False
@@ -137,19 +144,21 @@ def retry(stop=None, wait=None, retry=None, after=None, before_sleep=None):
         return wrapper
     return decorator
 
-# Custom stop condition that handles RateLimitException and other exceptions separately
+# Custom stop condition that handles RateLimitException, ServerSideException, and other exceptions separately
 def custom_stop_condition(exception, attempt_number):
     if isinstance(exception, RateLimitException):
         return False
+    if isinstance(exception, ServerSideException):
+        return stop_after_custom_attempts(attempt_number, max_attempts=15)
     return stop_after_custom_attempts(attempt_number)
 
 # Retry configuration:
 retry_config = {
     'stop': custom_stop_condition,
     'wait': lambda attempt_number: wait_random_exponential(
-        attempt_number, multiplier=1, max_wait=10
+        attempt_number, multiplier=1, max_wait=30
     ),
-    'retry': retry_if_exception_type((HTTPException,)),
+    'retry': retry_if_exception_type((HTTPException, ServerSideException)),
     'before_sleep': lambda retry_state: info(
         f"Sleeping before next retry ({retry_state['attempt_number']})"
     )

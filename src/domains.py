@@ -3,7 +3,15 @@ import http.client
 from urllib.parse import urlparse, urljoin
 from configparser import ConfigParser
 from src import info, convert, silent_error, error
-from src.requests import retry, retry_config, RateLimitException, HTTPException
+from src.requests import retry, retry_config, RateLimitException, HTTPException, stop_after_custom_attempts, wait_random_exponential
+
+# Aggressive retry config for adlist downloads (15 retries, ~5 min max wait)
+adlist_retry_config = {
+    'stop': lambda exc, n: stop_after_custom_attempts(n, max_attempts=15),
+    'wait': lambda n: wait_random_exponential(n, multiplier=1, max_wait=30),
+    'retry': lambda e: isinstance(e, HTTPException),
+    'before_sleep': lambda r: info(f"Sleeping before next retry ({r['attempt_number']})")
+}
 
 # Define the DomainConverter class for processing URL lists
 class DomainConverter:
@@ -13,7 +21,9 @@ class DomainConverter:
             "ADLIST_URLS": "./lists/adlist.ini",
             "WHITELIST_URLS": "./lists/whitelist.ini",
             "DYNAMIC_BLACKLIST": "./lists/dynamic_blacklist.txt",
-            "DYNAMIC_WHITELIST": "./lists/dynamic_whitelist.txt"
+            "DYNAMIC_WHITELIST": "./lists/dynamic_whitelist.txt",
+            "ADLIST_CACHE": "./lists/adlist_cache.txt",
+            "WHITELIST_CACHE": "./lists/whitelist_cache.txt"
         }
         # Read adlist and whitelist URLs from environment and files
         self.adlist_urls = self.read_urls("ADLIST_URLS")
@@ -47,7 +57,7 @@ class DomainConverter:
         urls += self.read_urls_from_env(env_var)
         return urls
 
-    @retry(**retry_config)
+    @retry(**adlist_retry_config)
     def download_file(self, url):
         parsed_url = urlparse(url)
         if parsed_url.scheme == "https":
@@ -137,13 +147,40 @@ class DomainConverter:
         info(f"Downloaded file from {url}. File size: {len(data)}")
         return data
 
+    def download_with_cache(self, url, cache_file):
+        """Download with cache fallback. Returns fresh data, or cached if download fails."""
+        try:
+            data = self.download_file(url)
+            # Update cache on successful download
+            try:
+                with open(cache_file, 'w') as f:
+                    f.write(data)
+                info(f"Updated cache: {cache_file}")
+            except OSError as e:
+                silent_error(f"Failed to write cache {cache_file}: {e}")
+            return data
+        except HTTPException as e:
+            # Download failed, try cache
+            try:
+                with open(cache_file, 'r') as f:
+                    cached_data = f.read()
+                silent_error(f"Using cached data from {cache_file} (download failed: {e})")
+                return cached_data
+            except FileNotFoundError:
+                error(f"No cache available and download failed for {url}")
+                raise
+
     def process_urls(self):
         block_content = ""
         white_content = ""
-        for url in self.adlist_urls:
-            block_content += self.download_file(url)
-        for url in self.whitelist_urls:
-            white_content += self.download_file(url)
+        # Download adlists with cache fallback
+        for i, url in enumerate(self.adlist_urls):
+            cache_file = self.env_file_map["ADLIST_CACHE"] if i == 0 else f"{self.env_file_map['ADLIST_CACHE']}.{i}"
+            block_content += self.download_with_cache(url, cache_file)
+        # Download whitelists with cache fallback
+        for i, url in enumerate(self.whitelist_urls):
+            cache_file = self.env_file_map["WHITELIST_CACHE"] if i == 0 else f"{self.env_file_map['WHITELIST_CACHE']}.{i}"
+            white_content += self.download_with_cache(url, cache_file)
         
         # Read additional dynamic lists
         dynamic_blacklist = os.getenv("DYNAMIC_BLACKLIST", "")

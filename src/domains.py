@@ -51,23 +51,37 @@ class DomainConverter:
     def download_file(self, url):
         parsed_url = urlparse(url)
         if parsed_url.scheme == "https":
-            conn = http.client.HTTPSConnection(parsed_url.netloc)
+            conn = http.client.HTTPSConnection(parsed_url.netloc, timeout=60)
         else:
-            conn = http.client.HTTPConnection(parsed_url.netloc)
+            conn = http.client.HTTPConnection(parsed_url.netloc, timeout=60)
 
         headers = {
             'User-Agent': 'Mozilla/5.0'
         }
 
-        conn.request("GET", parsed_url.path, headers=headers)
-        response = conn.getresponse()
+        try:
+            conn.request("GET", parsed_url.path, headers=headers)
+            response = conn.getresponse()
+        except (http.client.HTTPException, ConnectionError, OSError) as e:
+            conn.close()
+            error_message = f"Network error downloading {url}: {e}"
+            silent_error(error_message)
+            raise HTTPException(error_message)
 
         # Handle redirection responses
+        redirect_count = 0
+        max_redirects = 10
         while response.status in (301, 302, 303, 307, 308):
             conn.close()  # Close old connection before redirect
             location = response.getheader('Location')
             if not location:
                 break
+            redirect_count += 1
+            if redirect_count > max_redirects:
+                conn.close()
+                error_message = f"Too many redirects ({max_redirects}) for {url}"
+                silent_error(error_message)
+                raise HTTPException(error_message)
             # Construct new absolute URL if relative path is returned
             if not urlparse(location).netloc:
                 location = urljoin(url, location)
@@ -77,9 +91,9 @@ class DomainConverter:
 
             # Create new connection based on the new URL scheme
             if parsed_url.scheme == "https":
-                conn = http.client.HTTPSConnection(parsed_url.netloc)
+                conn = http.client.HTTPSConnection(parsed_url.netloc, timeout=60)
             else:
-                conn = http.client.HTTPConnection(parsed_url.netloc)
+                conn = http.client.HTTPConnection(parsed_url.netloc, timeout=60)
 
             # Use full path with query string for redirects
             full_path = parsed_url.path
@@ -90,21 +104,35 @@ class DomainConverter:
             if parsed_url.fragment:
                 full_path += f"#{parsed_url.fragment}"
 
-            conn.request("GET", full_path, headers=headers)
-            response = conn.getresponse()
+            try:
+                conn.request("GET", full_path, headers=headers)
+                response = conn.getresponse()
+            except (http.client.HTTPException, ConnectionError, OSError) as e:
+                conn.close()
+                error_message = f"Network error during redirect for {url}: {e}"
+                silent_error(error_message)
+                raise HTTPException(error_message)
 
         # Raise error for non-200 status codes
         if response.status != 200:
             error_message = f"Failed to download file from {url}, status code: {response.status}"
             silent_error(error_message)
             conn.close()
-            if response.status == 429:
+            if response.status >= 500:
+                raise HTTPException(error_message)  # Use HTTPException for 5xx, gets ServerSideException treatment
+            elif response.status == 429:
                 raise RateLimitException(error_message)
             else:
                 raise HTTPException(error_message)
 
         # Read response data and close the connection
-        data = response.read().decode('utf-8')
+        try:
+            data = response.read().decode('utf-8')
+        except (http.client.HTTPException, ConnectionError, OSError) as e:
+            conn.close()
+            error_message = f"Network error reading response from {url}: {e}"
+            silent_error(error_message)
+            raise HTTPException(error_message)
         conn.close()
         info(f"Downloaded file from {url}. File size: {len(data)}")
         return data

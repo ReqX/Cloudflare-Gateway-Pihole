@@ -31,13 +31,18 @@ jobs:
           python-version: 3.11
 
       - name: Cache Data
-        id: cache-cloudflare
+        id: cache-data
         uses: actions/cache@v4
         with:
-          path: cloudflare_cache.json
-          key: ${{ runner.os }}-cloudflare-cache-${{ hashFiles('lists/adlist.ini', 'lists/whitelist.ini') }}
+          path: |
+            cloudflare_cache.json
+            lists/adlist_cache.txt
+            lists/adlist_cache.txt.*
+            lists/whitelist_cache.txt
+            lists/whitelist_cache.txt.*
+          key: ${{ runner.os }}-data-cache-${{ hashFiles('lists/adlist.ini', 'lists/whitelist.ini') }}
           restore-keys: |
-            ${{ runner.os }}-cloudflare-cache-
+            ${{ runner.os }}-data-cache-
 
       - name: Cloudflare Gateway Zero Trust
         run: python -m src run

@@ -19,7 +19,15 @@ class CloudflareManager:
             error("The domains list exceeds Cloudflare Gateway's free limit of 300,000 domains.")
 
         # Cloudflare Gateway list limit (free tier)
-        MAX_LISTS = 300
+        # Keep 2 lists as safety buffer
+        MAX_LISTS = 298
+
+        # Domain limit with current approach
+        MAX_DOMAINS = MAX_LISTS * 1000  # 298,000 domains
+
+        if len(domains_to_block) > MAX_DOMAINS:
+            error(f"Too many domains ({len(domains_to_block):,}). Limit is {MAX_DOMAINS:,}. "
+                  f"Consider using wildcards (*.example.com) to reduce count, or run 'leave' to clean up.")
 
         # Fetch ALL lists with our prefix from Cloudflare to get true count
         from src.cloudflare import get_lists

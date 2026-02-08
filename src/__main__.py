@@ -17,7 +17,18 @@ class CloudflareManager:
         domains_to_block = DomainConverter().process_urls()
         if len(domains_to_block) > 300000:
             error("The domains list exceeds Cloudflare Gateway's free limit of 300,000 domains.")
-        
+
+        # Cloudflare Gateway list limit (free tier)
+        MAX_LISTS = 300
+
+        # Fetch ALL lists with our prefix from Cloudflare to get true count
+        from src.cloudflare import get_lists
+        all_cf_lists = get_lists(self.list_name)
+        current_list_count = len(all_cf_lists)
+
+        if current_list_count >= MAX_LISTS:
+            error(f"At maximum list capacity ({MAX_LISTS}). Cannot create new lists. Run 'leave' action to clean up old lists first.")
+
         current_lists = utils.get_current_lists(self.cache, self.list_name)
         current_rules = utils.get_current_rules(self.cache, self.rule_name)
 
@@ -30,16 +41,19 @@ class CloudflareManager:
         # Mapping domain to its current list_id
         domain_to_list_id = {domain: lst_id for lst_id, domains in list_id_to_domains.items() for domain in domains}
 
-        # Calculate remaining domains 
+        # Calculate remaining domains
         remaining_domains = set(domains_to_block) - set(domain_to_list_id.keys())
 
         # Create a dictionary for list names to keep track of missing indexes
         list_name_to_id = {lst["name"]: lst["id"] for lst in current_lists}
         existing_indexes = sorted([int(name.split('-')[-1]) for name in list_name_to_id.keys()])
 
-        # Determine the needed indexes
-        all_indexes = set(range(1, max(existing_indexes + [(len(domains_to_block) + 999) // 1000]) + 1))
-        
+        # Determine the needed indexes - cap at MAX_LISTS
+        needed_lists = (len(domains_to_block) + 999) // 1000
+        max_index = max(existing_indexes + [needed_lists]) if existing_indexes else needed_lists
+        max_index = min(max_index, MAX_LISTS)
+        all_indexes = set(range(1, max_index + 1))
+
         # Process current lists and fill them with remaining domains
         new_list_ids = []
         for i in all_indexes:
@@ -77,6 +91,9 @@ class CloudflareManager:
             else:
                 # Create new lists for remaining domains
                 if remaining_domains:
+                    # Check if we've hit the list limit before creating
+                    if len(new_list_ids) >= MAX_LISTS:
+                        error(f"Cannot create more lists (limit: {MAX_LISTS}). {len(remaining_domains)} domains unassigned.")
                     needed_items = min(1000, len(remaining_domains))
                     new_items = list(remaining_domains)[:needed_items]
                     remaining_domains.difference_update(new_items)

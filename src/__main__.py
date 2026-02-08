@@ -26,11 +26,31 @@ class CloudflareManager:
         all_cf_lists = get_lists(self.list_name)
         current_list_count = len(all_cf_lists)
 
+        # Fetch current rule to see which lists are actually in use
+        current_rules = utils.get_current_rules(self.cache, self.rule_name)
+        cgp_rule = next((rule for rule in current_rules if rule["name"] == self.rule_name), None)
+        active_list_ids = utils.extract_list_ids(cgp_rule) if cgp_rule else set()
+
+        # Identify orphaned lists (exist in CF but not in rule)
+        orphaned_lists = [lst for lst in all_cf_lists if lst["id"] not in active_list_ids]
+
+        # Delete orphaned lists to free up space
+        if orphaned_lists:
+            info(f"Found {len(orphaned_lists)} orphaned lists. Deleting...")
+            for lst in orphaned_lists[:MAX_LISTS]:  # Limit cleanup to avoid excessive deletes
+                try:
+                    delete_list(lst["id"])
+                    info(f"Deleted orphaned list: {lst['name']}")
+                    current_list_count -= 1
+                    if current_list_count < MAX_LISTS:
+                        break  # Stop once we have enough space
+                except Exception as e:
+                    silent_error(f"Failed to delete list {lst['name']}: {e}")
+
         if current_list_count >= MAX_LISTS:
-            error(f"At maximum list capacity ({MAX_LISTS}). Cannot create new lists. Run 'leave' action to clean up old lists first.")
+            error(f"At maximum list capacity ({MAX_LISTS}). Cannot proceed.")
 
         current_lists = utils.get_current_lists(self.cache, self.list_name)
-        current_rules = utils.get_current_rules(self.cache, self.rule_name)
 
         # Mapping list_id to current domains in that list
         list_id_to_domains = {}

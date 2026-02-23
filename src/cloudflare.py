@@ -25,7 +25,7 @@ def update_list(list_id, remove_items, append_items):
     remove_list = list(remove_items)
 
     # Try updating the list; if we get a 400 "not found" error, filter and retry
-    max_retries = 3
+    max_retries = 10  # Increased retries for multiple "not found" errors
     for attempt in range(max_retries):
         data = {
             "remove": remove_list,
@@ -35,15 +35,16 @@ def update_list(list_id, remove_items, append_items):
             status, response = cloudflare_gateway_request("PATCH", endpoint, body=json.dumps(data))
             return response["result"]
         except HTTPException as e:
-            # Check if this is a "not found in list" error (items already removed)
+            # Check if this is a "not found in list" error (items already removed or cache mismatch)
             if "not found in list" in str(e) and attempt < max_retries - 1:
                 # Extract the domain that wasn't found from the error message
+                # Format: "item to be removed, domain.com, not found in list"
                 import re
-                match = re.search(r'"message":\s*"(item to be removed, )?([^,]+)(, not found in list)?"', str(e))
+                match = re.search(r'item to be removed,\s*([^,\s"]+)', str(e))
                 if match:
-                    not_found_domain = match.group(2)
+                    not_found_domain = match.group(1).strip().strip('"')
                     from src import silent_error
-                    silent_error(f"Domain '{not_found_domain}' not in list (already removed), filtering and retrying")
+                    silent_error(f"Domain '{not_found_domain}' not in list (cache mismatch), filtering and retrying")
                     # Remove the problematic domain from remove_list
                     if not_found_domain in remove_list:
                         remove_list.remove(not_found_domain)

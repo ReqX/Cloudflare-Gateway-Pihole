@@ -38,9 +38,9 @@ def update_list(list_id, remove_items, append_items):
             # Check if this is a "not found in list" error (items already removed or cache mismatch)
             if "not found in list" in str(e) and attempt < max_retries - 1:
                 # Extract the domain that wasn't found from the error message
-                # Format: "item to be removed, domain.com, not found in list"
+                # Format in JSON: "item to be removed, domain.com, not found in list"
                 import re
-                match = re.search(r'item to be removed,\s*([^,\s"]+)', str(e))
+                match = re.search(r'item to be removed,\s*"?([^,"\s]+)', str(e))
                 if match:
                     not_found_domain = match.group(1).strip().strip('"')
                     from src import silent_error
